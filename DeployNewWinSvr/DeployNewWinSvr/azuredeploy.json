@@ -1,0 +1,199 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "MyStoreAccType": {
+      "type": "string",
+      "defaultValue": "Standard_LRS",
+      "allowedValues": [
+        "Standard_LRS",
+        "Standard_ZRS",
+        "Standard_GRS",
+        "Standard_RAGRS",
+        "Premium_LRS"
+      ]
+    },
+    "MyVmName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "MyVmAdminUserName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "MyVmAdminPassword": {
+      "type": "securestring"
+    },
+    "MyVmWindowsOSVersion": {
+      "type": "string",
+      "defaultValue": "2012-R2-Datacenter",
+      "allowedValues": [
+        "2008-R2-SP1",
+        "2012-Datacenter",
+        "2012-R2-Datacenter",
+        "Windows-Server-Technical-Preview"
+      ]
+    },
+    "MyPublicIPDnsName": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "variables": {
+    "MyStoreAccName": "[concat('mystoreacc', uniqueString(resourceGroup().id))]",
+    "MyVnetPrefix": "10.0.0.0/16",
+    "MyVnetSubnet1Name": "Subnet-1",
+    "MyVnetSubnet1Prefix": "10.0.0.0/24",
+    "MyVnetSubnet2Name": "Subnet-2",
+    "MyVnetSubnet2Prefix": "10.0.1.0/24",
+    "MyVmImagePublisher": "MicrosoftWindowsServer",
+    "MyVmImageOffer": "WindowsServer",
+    "MyVmOSDiskName": "MyVmOSDisk",
+    "MyVmVmSize": "Standard_D2_v2",
+    "MyVmVnetID": "[resourceId('Microsoft.Network/virtualNetworks', 'MyVnet')]",
+    "MyVmSubnetRef": "[concat(variables('MyVmVnetID'), '/subnets/', variables('MyVnetSubnet1Name'))]",
+    "MyVmStorageAccountContainerName": "vhds",
+    "MyVmNicName": "[concat(parameters('MyVmName'), 'NetworkInterface')]",
+    "MyPublicIPName": "MyPublicIP"
+  },
+  "resources": [
+    {
+      "name": "[variables('MyStoreAccName')]",
+      "type": "Microsoft.Storage/storageAccounts",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2016-01-01",
+      "sku": {
+        "name": "[parameters('MyStoreAccType')]"
+      },
+      "dependsOn": [ ],
+      "tags": {
+        "displayName": "MyStoreAcc"
+      },
+      "kind": "Storage"
+    },
+    {
+      "name": "MyVnet",
+      "type": "Microsoft.Network/virtualNetworks",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2016-03-30",
+      "dependsOn": [ ],
+      "tags": {
+        "displayName": "MyVnet"
+      },
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('MyVnetPrefix')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('MyVnetSubnet1Name')]",
+            "properties": {
+              "addressPrefix": "[variables('MyVnetSubnet1Prefix')]"
+            }
+          },
+          {
+            "name": "[variables('MyVnetSubnet2Name')]",
+            "properties": {
+              "addressPrefix": "[variables('MyVnetSubnet2Prefix')]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "[variables('MyVmNicName')]",
+      "type": "Microsoft.Network/networkInterfaces",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2016-03-30",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', 'MyVnet')]",
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('MyPublicIPName'))]"
+      ],
+      "tags": {
+        "displayName": "MyVmNic"
+      },
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "subnet": {
+                "id": "[variables('MyVmSubnetRef')]"
+              },
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('MyPublicIPName'))]"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "[parameters('MyVmName')]",
+      "type": "Microsoft.Compute/virtualMachines",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2015-06-15",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('MyStoreAccName'))]",
+        "[resourceId('Microsoft.Network/networkInterfaces', variables('MyVmNicName'))]"
+      ],
+      "tags": {
+        "displayName": "MyVm"
+      },
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[variables('MyVmVmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[parameters('MyVmName')]",
+          "adminUsername": "[parameters('MyVmAdminUsername')]",
+          "adminPassword": "[parameters('MyVmAdminPassword')]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "[variables('MyVmImagePublisher')]",
+            "offer": "[variables('MyVmImageOffer')]",
+            "sku": "[parameters('MyVmWindowsOSVersion')]",
+            "version": "latest"
+          },
+          "osDisk": {
+            "name": "MyVmOSDisk",
+            "vhd": {
+              "uri": "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('MyStoreAccName')), '2016-01-01').primaryEndpoints.blob, variables('MyVmStorageAccountContainerName'), '/', variables('MyVmOSDiskName'), '.vhd')]"
+            },
+            "caching": "ReadWrite",
+            "createOption": "FromImage"
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('MyVmNicName'))]"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "[variables('MyPublicIPName')]",
+      "type": "Microsoft.Network/publicIPAddresses",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2016-03-30",
+      "dependsOn": [ ],
+      "tags": {
+        "displayName": "MyPublicIP"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic",
+        "dnsSettings": {
+          "domainNameLabel": "[parameters('MyPublicIPDnsName')]"
+        }
+      }
+    }
+  ],
+  "outputs": {
+  }
+}
